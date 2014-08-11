@@ -12,7 +12,8 @@ import java.util.logging.Level
 @Log @SuppressWarnings("GroovyUnusedDeclaration")
 class ASTComparatorCategory {
     static { log.level = Level.WARNING }
-    static private List<String> EXPRESSION_IGNORE_LIST = ["text", "columnNumber", "lineNumber", "lastColumnNumber", "lastLineNumber"]
+    static List<String> LOCATION_IGNORE_LIST = ["columnNumber", "lineNumber", "lastColumnNumber", "lastLineNumber"]
+    static private List<String> EXPRESSION_IGNORE_LIST = ["text"] + LOCATION_IGNORE_LIST
 
     /**
      *  Keeps all checked object pairs and their comparison result.
@@ -22,16 +23,16 @@ class ASTComparatorCategory {
     static String lastName
 
     static Map<Class, List<String>> DEFAULT_CONFIGURATION = [
-        (ClassNode): ['module', "declaredMethodsMap", "plainNodeReference", "typeClass", "allInterfaces", "orAddStaticConstructorNode"],
+        (ClassNode): (['module', "declaredMethodsMap", "plainNodeReference", "typeClass", "allInterfaces", "orAddStaticConstructorNode", "allDeclaredMethods", "unresolvedSuperClass", "innerClasses" ] + LOCATION_IGNORE_LIST) as List<String>,
         (ConstructorNode): ['declaringClass'],
         (DynamicVariable): [],
         (EnumConstantClassNode): [],
         (FieldNode): ["owner", "declaringClass", "initialValueExpression"],
         (GenericsType): [],
-        (ImportNode): [],
-        (InnerClassNode): [],
+        (ImportNode): LOCATION_IGNORE_LIST,
+        (InnerClassNode): (['module', "declaredMethodsMap", "plainNodeReference", "typeClass", "allInterfaces", "orAddStaticConstructorNode", "allDeclaredMethods", "unresolvedSuperClass", "innerClasses" ] + LOCATION_IGNORE_LIST) as List<String>,
         (InterfaceHelperClassNode): [],
-        (MethodNode): ["declaringClass"],
+        (MethodNode): ["text", "declaringClass"],
         (MixinNode): [],
         (ModuleNode): ["context"],
         (PackageNode): [],
@@ -39,12 +40,13 @@ class ASTComparatorCategory {
         (PropertyNode): ['declaringClass', 'initialValueExpression'],
         (Variable): [],
         (VariableScope): ["clazzScope", "parent"],
-        (Token): ["root"],
+        (Token): ["root", "startColumn"],
+        (AnnotationNode): (["text"] + LOCATION_IGNORE_LIST) as List<String>,
         (AssertStatement): ["text"],
         (BlockStatement): ["columnNumber", "lineNumber", "lastColumnNumber", "lastLineNumber", "text"],
         (BreakStatement): ["text"],
         (CaseStatement): ["text"],
-        (CatchStatement): ["text"],
+        (CatchStatement): (["text"] + LOCATION_IGNORE_LIST) as List<String>,
         (ContinueStatement): ["text"],
         (DoWhileStatement): ["text"],
         (EmptyStatement): ["text"],
@@ -53,16 +55,16 @@ class ASTComparatorCategory {
         (IfStatement): ["text"],
         (LoopingStatement): ["text"],
         (ReturnStatement): ["text"],
-        (SwitchStatement): ["text"],
+        (SwitchStatement): ["columnNumber", "lineNumber", "lastColumnNumber", "lastLineNumber", "text"],
         (SynchronizedStatement): ["text"],
         (ThrowStatement): ["text"],
-        (TryCatchStatement): ["text"],
+        (TryCatchStatement): (["text"] + LOCATION_IGNORE_LIST) as List<String>,
         (WhileStatement): ["text"],
         (AnnotationConstantExpression): EXPRESSION_IGNORE_LIST,
         (ArgumentListExpression): EXPRESSION_IGNORE_LIST,
         (ArrayExpression): EXPRESSION_IGNORE_LIST,
         (AttributeExpression): EXPRESSION_IGNORE_LIST,
-        (BinaryExpression): ["text", "columnNumber", "lastColumnNumber"],
+        (BinaryExpression): EXPRESSION_IGNORE_LIST,
         (BitwiseNegationExpression): EXPRESSION_IGNORE_LIST,
         (BooleanExpression): EXPRESSION_IGNORE_LIST,
         (CastExpression): EXPRESSION_IGNORE_LIST,
@@ -101,7 +103,7 @@ class ASTComparatorCategory {
 
     static Map<Class, List<String>> configuration = DEFAULT_CONFIGURATION;
 
-    static void apply(Closure cl, config = DEFAULT_CONFIGURATION) {
+    static void apply(config = DEFAULT_CONFIGURATION, Closure cl) {
         configuration = config
         objects.clear()
         use(ASTComparatorCategory, cl)
@@ -116,12 +118,18 @@ class ASTComparatorCategory {
      * @return
      */
     static reflexiveEquals(a, b, ignore = []) {
-        Boolean res = objects[[a, b]]
+        def objects = [a, b]
+        Boolean res = this.objects[objects]
         if (res != null) {
             log.info("Skipping [$a, $b] comparison as they are ${ res ? "" : "un" }equal.")
             return res;
         }
+        else if (this.objects.containsKey(objects)) {
+            log.info("Skipping as they are processed at higher levels.")
+            return true
+        }
 
+        this.objects[objects] = null
         log.info("Equals was called for ${ a.getClass() } ${ a.hashCode() }, $lastName")
         if (a.is(b))
             return true
@@ -140,8 +148,8 @@ class ASTComparatorCategory {
             log.info(" ==== Exit ${ a.getClass() } ${ a.hashCode() } ====== ")
 
         res = difference == null
-        objects[[a, b]] = res
-        objects[[b, a]] = res
+        this.objects[objects] = res
+        this.objects[objects.reverse(false)] = res
         res
     }
 
@@ -223,6 +231,10 @@ class ASTComparatorCategory {
 
     static equals(CompileUnit a, CompileUnit b) {
         true
+    }
+
+    static equals(AnnotationNode a, AnnotationNode b) {
+        reflexiveEquals(a, b, configuration[a.class])
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////
