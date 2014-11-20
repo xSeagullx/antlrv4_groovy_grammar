@@ -15,7 +15,7 @@ class Antlrv4ParserPlugin implements ParserPlugin {
 
     @Override ModuleNode buildAST(SourceUnit sourceUnit, ClassLoader classLoader, Reduction cst) throws ParserException {
 
-        def builder = new ASTBuilder(sourceUnit, classLoader)
+        def builder = new GASTBuilder(sourceUnit, classLoader)
         builder.moduleNode
     }
 }

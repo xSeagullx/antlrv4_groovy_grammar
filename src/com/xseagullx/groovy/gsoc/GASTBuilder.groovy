@@ -168,19 +168,19 @@ import java.lang.reflect.Modifier
 import java.util.logging.Level
 
 @Log
-class ASTBuilder {
+class GASTBuilder {
     ModuleNode moduleNode
 
     private SourceUnit sourceUnit
     private ClassLoader classLoader
 
     // This fields are weird.
-    private static ASTBuilder instance
+    private static GASTBuilder instance
     private Stack<ClassNode> classes = [] // FIXME Dirty hack for inner classes. Remove ASAP.
     private Stack<List<InnerClassNode>> innerClassesDefinedInMethod = [] // --
     private int anonymousClassesCount = 0 // Used for create name for Counts anonimous classes
 
-    ASTBuilder(SourceUnit sourceUnit, ClassLoader classLoader) {
+    GASTBuilder(SourceUnit sourceUnit, ClassLoader classLoader) {
         instance = this
         this.classLoader = classLoader
         this.sourceUnit = sourceUnit
@@ -315,7 +315,7 @@ class ASTBuilder {
         classes.pop()
 
         if (classNode.interface)
-            //noinspection GroovyAccessibility
+        //noinspection GroovyAccessibility
             classNode.mixins =  null // FIXME why interface has null mixin
         classNode
     }
@@ -326,23 +326,23 @@ class ASTBuilder {
 
             ASTNode memberNode = null
             switch (memberContext) {
-                case ClassDeclarationContext:
-                    memberNode = parseClassDeclaration(memberContext as ClassDeclarationContext)
-                    break;
-                case EnumDeclarationContext:
-                    parseEnumDeclaration(memberContext as EnumDeclarationContext)
-                    break;
-                case ConstructorDeclarationContext:
-                case MethodDeclarationContext:
-                case FieldDeclarationContext:
-                case ObjectInitializerContext:
-                case ClassInitializerContext:
-                    // This inspection is suppressed cause I use Runtime multimethods dispatching mechanics of Groovy.
-                    //noinspection GroovyAssignabilityCheck
-                    memberNode = parseMember(classNode, memberContext)
-                    break;
-                default:
-                    assert false, "Unknown class member type.";
+            case ClassDeclarationContext:
+                memberNode = parseClassDeclaration(memberContext as ClassDeclarationContext)
+                break;
+            case EnumDeclarationContext:
+                parseEnumDeclaration(memberContext as EnumDeclarationContext)
+                break;
+            case ConstructorDeclarationContext:
+            case MethodDeclarationContext:
+            case FieldDeclarationContext:
+            case ObjectInitializerContext:
+            case ClassInitializerContext:
+                // This inspection is suppressed cause I use Runtime multimethods dispatching mechanics of Groovy.
+                //noinspection GroovyAssignabilityCheck
+                memberNode = parseMember(classNode, memberContext)
+                break;
+            default:
+                assert false, "Unknown class member type.";
             }
             if (memberNode)
                 setupNodeLocation(memberNode, member)
@@ -529,7 +529,7 @@ class ASTBuilder {
                 stmt.addStatement(parseStatement(st))
 
             caseStatements << setupNodeLocation(new CaseStatement(parseExpression(caseStmt.expression()), stmt),
-                    caseStmt.KW_CASE().symbol) // There only 'case' kw was highlighted in parser old version.
+                caseStmt.KW_CASE().symbol) // There only 'case' kw was highlighted in parser old version.
         }
 
         Statement defaultStatement
@@ -647,11 +647,11 @@ class ASTBuilder {
         Expression expression
         def identifiers = ctx.IDENTIFIER() as List<TerminalNode>
         switch (identifiers.size()) {
-            case 1: expression = VariableExpression.THIS_EXPRESSION; break
-            case 2: expression = new VariableExpression(identifiers[0].text); break
-            default: expression = identifiers[1..-2].inject(new VariableExpression(identifiers[0].text)) { Expression expr, prop ->
-                new PropertyExpression(expr, prop.text)
-            }; break
+        case 1: expression = VariableExpression.THIS_EXPRESSION; break
+        case 2: expression = new VariableExpression(identifiers[0].text); break
+        default: expression = identifiers[1..-2].inject(new VariableExpression(identifiers[0].text)) { Expression expr, prop ->
+            new PropertyExpression(expr, prop.text)
+        }; break
         }
         [expression, identifiers[-1], identifiers.size() == 1]
     }
@@ -736,22 +736,22 @@ class ASTBuilder {
         // ClassExpression for given IDENTIFIERS. So, switch should fall through.
         //noinspection GroovyFallthrough
         switch (op.type) {
-            case Types.RANGE_OPERATOR:
+        case Types.RANGE_OPERATOR:
+            right = parseExpression(ctx.expression(1))
+            expression = new RangeExpression(left, right, !op.text.endsWith('<'))
+            break;
+        case Types.KEYWORD_AS:
+            def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
+            expression = CastExpression.asExpression(classNode, left)
+            break;
+        case Types.KEYWORD_INSTANCEOF:
+            def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
+            right = new ClassExpression(classNode)
+        default:
+            if (!right)
                 right = parseExpression(ctx.expression(1))
-                expression = new RangeExpression(left, right, !op.text.endsWith('<'))
-                break;
-            case Types.KEYWORD_AS:
-                def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
-                expression = CastExpression.asExpression(classNode, left)
-                break;
-            case Types.KEYWORD_INSTANCEOF:
-                def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
-                right = new ClassExpression(classNode)
-            default:
-                if (!right)
-                    right = parseExpression(ctx.expression(1))
-                expression = new BinaryExpression(left, op, right)
-                break
+            expression = new BinaryExpression(left, op, right)
+            break
         }
 
         expression.columnNumber = op.startColumn
@@ -781,11 +781,11 @@ class ASTBuilder {
         def node = null
         def op = ctx.getChild(0) as TerminalNode
         switch (op.text) {
-            case '-' : node = new UnaryMinusExpression(parseExpression(ctx.expression())); break
-            case '+' : node = new UnaryPlusExpression(parseExpression(ctx.expression())); break
-            case '!' : node = new NotExpression(parseExpression(ctx.expression())); break
-            case '~' : node = new BitwiseNegationExpression(parseExpression(ctx.expression())); break
-            default: assert false, "There is no $op.text handler."; break
+        case '-' : node = new UnaryMinusExpression(parseExpression(ctx.expression())); break
+        case '+' : node = new UnaryPlusExpression(parseExpression(ctx.expression())); break
+        case '!' : node = new NotExpression(parseExpression(ctx.expression())); break
+        case '~' : node = new BitwiseNegationExpression(parseExpression(ctx.expression())); break
+        default: assert false, "There is no $op.text handler."; break
         }
 
         node.columnNumber = op.symbol.charPositionInLine + 1
@@ -798,24 +798,24 @@ class ASTBuilder {
     @SuppressWarnings("GroovyUnusedDeclaration")
     static Expression parseExpression(AnnotationParameterContext ctx) {
         switch (ctx) {
-            case AnnotationParamArrayExpressionContext:
-                def c = ctx as AnnotationParamArrayExpressionContext
-                return setupNodeLocation(new ListExpression(c.annotationParameter().collect { parseExpression(it) }), c)
-            case AnnotationParamBoolExpressionContext:
-                return parseExpression(ctx);
-            case AnnotationParamClassExpressionContext:
-                return setupNodeLocation(new ClassExpression(parseExpression((ctx as AnnotationParamClassExpressionContext).genericClassNameExpression())), ctx);
-            case AnnotationParamDecimalExpressionContext:
-                return parseExpression(ctx);
-            case AnnotationParamIntegerExpressionContext:
-                return parseExpression(ctx);
-            case AnnotationParamNullExpressionContext:
-                return parseExpression(ctx);
-            case AnnotationParamPathExpressionContext:
-                def c = ctx as AnnotationParamPathExpressionContext
-                return collectPathExpression(c.pathExpression())
-            case AnnotationParamStringExpressionContext:
-                return parseExpression(ctx);
+        case AnnotationParamArrayExpressionContext:
+            def c = ctx as AnnotationParamArrayExpressionContext
+            return setupNodeLocation(new ListExpression(c.annotationParameter().collect { parseExpression(it) }), c)
+        case AnnotationParamBoolExpressionContext:
+            return parseExpression(ctx);
+        case AnnotationParamClassExpressionContext:
+            return setupNodeLocation(new ClassExpression(parseExpression((ctx as AnnotationParamClassExpressionContext).genericClassNameExpression())), ctx);
+        case AnnotationParamDecimalExpressionContext:
+            return parseExpression(ctx);
+        case AnnotationParamIntegerExpressionContext:
+            return parseExpression(ctx);
+        case AnnotationParamNullExpressionContext:
+            return parseExpression(ctx);
+        case AnnotationParamPathExpressionContext:
+            def c = ctx as AnnotationParamPathExpressionContext
+            return collectPathExpression(c.pathExpression())
+        case AnnotationParamStringExpressionContext:
+            return parseExpression(ctx);
         }
         throw new CompilationFailedException(CompilePhase.PARSING.phaseNumber, instance.sourceUnit, new IllegalStateException("$ctx is prohibited inside annotations."))
     }
@@ -1049,7 +1049,7 @@ class ASTBuilder {
     static GenericsType[] parseGenericList(GenericListContext ctx) {
         !ctx ?
             null
-        : ctx.genericListElement().collect {
+            : ctx.genericListElement().collect {
             if (it instanceof GenericsConcreteElementContext)
                 setupNodeLocation(new GenericsType(parseExpression(it.genericClassNameExpression())), it)
             else {
@@ -1262,11 +1262,11 @@ class ASTBuilder {
             }
             assert child instanceof TerminalNode
             switch (child.symbol.type) {
-                case GroovyLexer.VISIBILITY_MODIFIER: visibilityModifiers << child; break
-                case GroovyLexer.KW_STATIC: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STATIC, child); break
-                case GroovyLexer.KW_ABSTRACT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_ABSTRACT, child); break
-                case GroovyLexer.KW_FINAL: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_FINAL, child); break
-                case GroovyLexer.KW_STRICTFP: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STRICT, child); break
+            case GroovyLexer.VISIBILITY_MODIFIER: visibilityModifiers << child; break
+            case GroovyLexer.KW_STATIC: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STATIC, child); break
+            case GroovyLexer.KW_ABSTRACT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_ABSTRACT, child); break
+            case GroovyLexer.KW_FINAL: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_FINAL, child); break
+            case GroovyLexer.KW_STRICTFP: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STRICT, child); break
             }
         }
         if (visibilityModifiers)
@@ -1302,17 +1302,17 @@ class ASTBuilder {
         ctxList.each {
             def child = (it.getChild(0) as TerminalNode)
             switch (child.symbol.type) {
-                case GroovyLexer.KW_STATIC: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STATIC, child); break
-                case GroovyLexer.KW_ABSTRACT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_ABSTRACT, child); break
-                case GroovyLexer.KW_FINAL: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_FINAL, child); break
-                case GroovyLexer.KW_NATIVE: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_NATIVE, child); break
-                case GroovyLexer.KW_SYNCHRONIZED: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_SYNCHRONIZED, child); break
-                case GroovyLexer.KW_TRANSIENT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_TRANSIENT, child); break
-                case GroovyLexer.KW_VOLATILE: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_VOLATILE, child); break
-                case GroovyLexer.VISIBILITY_MODIFIER:
-                    modifiers |= parseVisibilityModifiers(child)
-                    hasVisibilityModifier = true
-                    break
+            case GroovyLexer.KW_STATIC: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_STATIC, child); break
+            case GroovyLexer.KW_ABSTRACT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_ABSTRACT, child); break
+            case GroovyLexer.KW_FINAL: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_FINAL, child); break
+            case GroovyLexer.KW_NATIVE: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_NATIVE, child); break
+            case GroovyLexer.KW_SYNCHRONIZED: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_SYNCHRONIZED, child); break
+            case GroovyLexer.KW_TRANSIENT: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_TRANSIENT, child); break
+            case GroovyLexer.KW_VOLATILE: modifiers |= checkModifierDuplication(modifiers, Opcodes.ACC_VOLATILE, child); break
+            case GroovyLexer.VISIBILITY_MODIFIER:
+                modifiers |= parseVisibilityModifiers(child)
+                hasVisibilityModifier = true
+                break
             }
         }
         if (!hasVisibilityModifier && defaultVisibilityModifier != null)
@@ -1328,10 +1328,10 @@ class ASTBuilder {
     static int parseVisibilityModifiers(TerminalNode modifier) {
         assert modifier.symbol.type == GroovyLexer.VISIBILITY_MODIFIER
         switch (modifier.symbol.text) {
-            case "public": Opcodes.ACC_PUBLIC; break
-            case "private": Opcodes.ACC_PRIVATE; break
-            case "protected": Opcodes.ACC_PROTECTED; break
-            default: throw new AssertionError("$modifier.symbol.text is not a valid visibility modifier!")
+        case "public": Opcodes.ACC_PUBLIC; break
+        case "private": Opcodes.ACC_PRIVATE; break
+        case "protected": Opcodes.ACC_PROTECTED; break
+        default: throw new AssertionError("$modifier.symbol.text is not a valid visibility modifier!")
         }
     }
 
@@ -1363,14 +1363,14 @@ class ASTBuilder {
 
     static def initialExpressionForType(ClassNode type) {
         switch (type) {
-            case ClassHelper.int_TYPE: return 0
-            case ClassHelper.long_TYPE: return 0L
-            case ClassHelper.double_TYPE: return 0.0
-            case ClassHelper.float_TYPE: return 0f
-            case ClassHelper.boolean_TYPE: return Boolean.FALSE
-            case ClassHelper.short_TYPE: return 0 as short
-            case ClassHelper.byte_TYPE: return 0 as byte
-            case ClassHelper.char_TYPE: return 0 as char
+        case ClassHelper.int_TYPE: return 0
+        case ClassHelper.long_TYPE: return 0L
+        case ClassHelper.double_TYPE: return 0.0
+        case ClassHelper.float_TYPE: return 0f
+        case ClassHelper.boolean_TYPE: return Boolean.FALSE
+        case ClassHelper.short_TYPE: return 0 as short
+        case ClassHelper.byte_TYPE: return 0 as byte
+        case ClassHelper.char_TYPE: return 0 as char
         }
     }
 }

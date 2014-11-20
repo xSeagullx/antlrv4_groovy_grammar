@@ -6,6 +6,10 @@ apply plugin: 'application'
 apply plugin: 'base'
 
 version = '1.0'
+tasks.withType(JavaCompile) {
+    options.fork = true
+    options.forkOptions.executable = '/Library/Java/JavaVirtualMachines/jdk1.7.0_60.jdk/Contents/Home/bin/javac'
+}
 
 mainClassName = 'com.xseagullx.groovy.gsoc.Main'
 
@@ -29,6 +33,7 @@ repositories {
 dependencies {
     compile 'org.antlr:antlr4-runtime:4.2.1'
 
+    compile "org.ow2.asm:asm:5.0.3"
     compile 'org.codehaus.groovy:groovy-all:2.2.2'
 
     compile 'com.thoughtworks.xstream:xstream:1.4.7' // For saveAsXML method in SourceUnit.
