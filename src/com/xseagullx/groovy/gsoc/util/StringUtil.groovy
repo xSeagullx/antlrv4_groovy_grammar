@@ -1,5 +1,7 @@
 package com.xseagullx.groovy.gsoc.util
 
+import org.antlr.v4.runtime.tree.TerminalNode
+
 class StringUtil {
     static String replaceHexEscapes(String text) {
         def p = ~/\\u([0-9abcdefABCDEF]{4})/
@@ -28,5 +30,9 @@ class StringUtil {
         text.replaceAll(p) { String _0, String _1 ->
             standardEscapes[_1] ?: _1
         }
+    }
+
+    static String join(List<TerminalNode> identifier, String s) {
+        return identifier.join(s);
     }
 }

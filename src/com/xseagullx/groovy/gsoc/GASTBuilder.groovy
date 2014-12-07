@@ -84,6 +84,7 @@ import com.xseagullx.groovy.gsoc.GroovyParser.TypeDeclarationContext
 import com.xseagullx.groovy.gsoc.GroovyParser.UnaryExpressionContext
 import com.xseagullx.groovy.gsoc.GroovyParser.VariableExpressionContext
 import com.xseagullx.groovy.gsoc.GroovyParser.WhileStatementContext
+import com.xseagullx.groovy.gsoc.parser.ExpressionParser
 import com.xseagullx.groovy.gsoc.parser.StatementParser
 import com.xseagullx.groovy.gsoc.util.StringUtil
 import groovy.util.logging.Log
@@ -172,11 +173,11 @@ import java.util.logging.Level
 class GASTBuilder {
     ModuleNode moduleNode
 
-    private SourceUnit sourceUnit
+    SourceUnit sourceUnit
     private ClassLoader classLoader
 
     // This fields are weird.
-    private static GASTBuilder instance
+    static GASTBuilder instance
     private Stack<ClassNode> classes = [] // FIXME Dirty hack for inner classes. Remove ASAP.
     private Stack<List<InnerClassNode>> innerClassesDefinedInMethod = [] // --
     private int anonymousClassesCount = 0 // Used for create name for Counts anonimous classes
@@ -266,7 +267,7 @@ class GASTBuilder {
     }
 
     void parseEnumDeclaration(@NotNull EnumDeclarationContext ctx) {
-        ClassNode[] interfaces = ctx.implementsClause() ? ctx.implementsClause().genericClassNameExpression().collect { parseExpression(it) } : []
+        ClassNode[] interfaces = ctx.implementsClause() ? ctx.implementsClause().genericClassNameExpression().collect { ExpressionParser.parseExpression(it) } : []
         def classNode = EnumHelper.makeEnumNode(ctx.IDENTIFIER().text, Modifier.PUBLIC, interfaces, null) // FIXME merge with class declaration.
         setupNodeLocation(classNode, ctx)
         attachAnnotations(classNode, ctx.annotationClause())
@@ -296,9 +297,9 @@ class GASTBuilder {
         attachAnnotations(classNode, ctx.annotationClause())
         moduleNode.addClass(classNode)
         if (ctx.extendsClause())
-            classNode.setSuperClass(parseExpression(ctx.extendsClause().genericClassNameExpression()))
+            classNode.setSuperClass(ExpressionParser.parseExpression(ctx.extendsClause().genericClassNameExpression()))
         if (ctx.implementsClause())
-            classNode.setInterfaces(ctx.implementsClause().genericClassNameExpression().collect { parseExpression(it) } as ClassNode[])
+            classNode.setInterfaces(ctx.implementsClause().genericClassNameExpression().collect { ExpressionParser.parseExpression(it) } as ClassNode[])
 
         classNode.genericsTypes = parseGenericDeclaration(ctx.genericDeclarationList())
         classNode.usingGenerics = classNode.genericsTypes || classNode.superClass.usingGenerics || classNode.interfaces.any { it.usingGenerics }
@@ -368,7 +369,7 @@ class GASTBuilder {
         def params = parseParameters(ctx.argumentDeclarationList())
 
         def returnType = ctx.typeDeclaration() ? parseTypeDeclaration(ctx.typeDeclaration()) :
-            ctx.genericClassNameExpression() ? parseExpression(ctx.genericClassNameExpression()) : ClassHelper.OBJECT_TYPE
+            ctx.genericClassNameExpression() ? ExpressionParser.parseExpression(ctx.genericClassNameExpression()) : ClassHelper.OBJECT_TYPE
 
         def exceptions = parseThrowsClause(ctx.throwsClause())
         modifiers |= classNode.interface ? Opcodes.ACC_ABSTRACT : 0
@@ -390,8 +391,8 @@ class GASTBuilder {
 
 
         def initExprContext = ctx.expression()
-        def initialierExpression = initExprContext ? parseExpression(initExprContext) : null
-        def typeDeclaration = ctx.genericClassNameExpression() ? parseExpression(ctx.genericClassNameExpression()) : ClassHelper.OBJECT_TYPE
+        def initialierExpression = initExprContext ? ExpressionParser.parseExpression(initExprContext) : null
+        def typeDeclaration = ctx.genericClassNameExpression() ? ExpressionParser.parseExpression(ctx.genericClassNameExpression()) : ClassHelper.OBJECT_TYPE
         AnnotatedNode node
         def initialValue = classNode.interface && typeDeclaration != ClassHelper.OBJECT_TYPE ? new ConstantExpression(initialExpressionForType(typeDeclaration)) : initialierExpression
         if (classNode.interface || hasVisibilityModifier) {
@@ -440,432 +441,21 @@ class GASTBuilder {
         constructorNode
     }
 
-    /**
-     * Parse path expression.
-     * @param ctx
-     * @return tuple of 3 values: Expression, String methodName and boolean implicitThis flag.
-     */
-    static def parsePathExpression(PathExpressionContext ctx) {
-        Expression expression
-        def identifiers = ctx.IDENTIFIER() as List<TerminalNode>
-        switch (identifiers.size()) {
-        case 1: expression = VariableExpression.THIS_EXPRESSION; break
-        case 2: expression = new VariableExpression(identifiers[0].text); break
-        default: expression = identifiers[1..-2].inject(new VariableExpression(identifiers[0].text)) { Expression expr, prop ->
-            new PropertyExpression(expr, prop.text)
-        }; break
-        }
-        [expression, identifiers[-1], identifiers.size() == 1]
-    }
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Expressions.
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-    static Expression parseExpression(ExpressionContext ctx) {
-        if (ctx.class != ExpressionContext)
-            parseExpression(ctx)
-        else
-            throw new RuntimeException("Unsupported expression type! $ctx")
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(NewArrayExpressionContext ctx) {
-        parse(ctx.newArrayRule())
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(NewInstanceExpressionContext ctx) {
-        parse(ctx.newInstanceRule())
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(ParenthesisExpressionContext ctx) {
-        parseExpression(ctx.expression())
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(ListConstructorContext ctx) {
-        def expression = new ListExpression(ctx.expression().collect(ASTBuilder.&parseExpression))
-        setupNodeLocation(expression, ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(MapConstructorContext ctx) {
-        setupNodeLocation(new MapExpression(ctx.mapEntry()?.collect(ASTBuilder.&parseExpression) ?: []), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static MapEntryExpression parseExpression(MapEntryContext ctx) {
-        Expression keyExpr, valueExpr
-        def expressions = ctx.expression()
-        if (expressions.size() == 1) {
-            keyExpr = ctx.gstring() ?
-                parseExpression(ctx.gstring()) :
-                new ConstantExpression(ctx.IDENTIFIER() ?
-                    ctx.IDENTIFIER().text :
-                    parseString(ctx.STRING()))
-
-            valueExpr = parseExpression(expressions[0])
-        }
-        else {
-            keyExpr = parseExpression(expressions[0])
-            valueExpr = parseExpression(expressions[1])
-        }
-        setupNodeLocation(new MapEntryExpression(keyExpr, valueExpr), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(ClosureExpressionContext ctx) {
-        parseExpression(ctx.closureExpressionRule())
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(ClosureExpressionRuleContext ctx) {
-        def parameters = ctx.argumentDeclarationList() ? (parseParameters(ctx.argumentDeclarationList()) ?: null) : ([] as Parameter[])
-
-        def statement = StatementParser.parseStatement(ctx.blockStatement() as BlockStatementContext)
-        setupNodeLocation(new ClosureExpression(parameters, statement), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(BinaryExpressionContext ctx) {
-        def c = ctx.getChild(1) as TerminalNode
-        int i = 1
-        for (def next = ctx.getChild(i + 1); next instanceof TerminalNode && next.symbol.type == GroovyParser.GT; next = ctx.getChild(i + 1))
-            i++
-        def op = createToken(c, i)
-        def expression
-        def left = parseExpression(ctx.expression(0))
-        def right = null // Will be initialized later, in switch. We should handle as and instanceof creating
-        // ClassExpression for given IDENTIFIERS. So, switch should fall through.
-        //noinspection GroovyFallthrough
-        switch (op.type) {
-        case Types.RANGE_OPERATOR:
-            right = parseExpression(ctx.expression(1))
-            expression = new RangeExpression(left, right, !op.text.endsWith('<'))
-            break;
-        case Types.KEYWORD_AS:
-            def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
-            expression = CastExpression.asExpression(classNode, left)
-            break;
-        case Types.KEYWORD_INSTANCEOF:
-            def classNode = setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx.genericClassNameExpression())
-            right = new ClassExpression(classNode)
-        default:
-            if (!right)
-                right = parseExpression(ctx.expression(1))
-            expression = new BinaryExpression(left, op, right)
-            break
-        }
-
-        expression.columnNumber = op.startColumn
-        expression.lastColumnNumber = op.startColumn + op.text.length()
-        expression.lineNumber = op.startLine
-        expression.lastLineNumber = op.startLine
-        expression
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(TernaryExpressionContext ctx) {
-        def boolExpr = new BooleanExpression(parseExpression(ctx.expression(0)))
-        def trueExpr = parseExpression(ctx.expression(1))
-        def falseExpr = parseExpression(ctx.expression(2))
-        setupNodeLocation(new TernaryExpression(boolExpr, trueExpr, falseExpr), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(ElvisExpressionContext ctx) {
-        def baseExpr = parseExpression(ctx.expression(0))
-        def falseExpr = parseExpression(ctx.expression(1))
-        setupNodeLocation(new ElvisOperatorExpression(baseExpr, falseExpr), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(UnaryExpressionContext ctx) {
-        def node = null
-        def op = ctx.getChild(0) as TerminalNode
-        switch (op.text) {
-        case '-' : node = new UnaryMinusExpression(parseExpression(ctx.expression())); break
-        case '+' : node = new UnaryPlusExpression(parseExpression(ctx.expression())); break
-        case '!' : node = new NotExpression(parseExpression(ctx.expression())); break
-        case '~' : node = new BitwiseNegationExpression(parseExpression(ctx.expression())); break
-        default: assert false, "There is no $op.text handler."; break
-        }
-
-        node.columnNumber = op.symbol.charPositionInLine + 1
-        node.lineNumber = op.symbol.line
-        node.lastLineNumber = op.symbol.line
-        node.lastColumnNumber = op.symbol.charPositionInLine + 1 + op.text.length()
-        node
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(AnnotationParameterContext ctx) {
-        switch (ctx) {
-        case AnnotationParamArrayExpressionContext:
-            def c = ctx as AnnotationParamArrayExpressionContext
-            return setupNodeLocation(new ListExpression(c.annotationParameter().collect { parseExpression(it) }), c)
-        case AnnotationParamBoolExpressionContext:
-            return parseExpression(ctx);
-        case AnnotationParamClassExpressionContext:
-            return setupNodeLocation(new ClassExpression(parseExpression((ctx as AnnotationParamClassExpressionContext).genericClassNameExpression())), ctx);
-        case AnnotationParamDecimalExpressionContext:
-            return parseExpression(ctx);
-        case AnnotationParamIntegerExpressionContext:
-            return parseExpression(ctx);
-        case AnnotationParamNullExpressionContext:
-            return parseExpression(ctx);
-        case AnnotationParamPathExpressionContext:
-            def c = ctx as AnnotationParamPathExpressionContext
-            return collectPathExpression(c.pathExpression())
-        case AnnotationParamStringExpressionContext:
-            return parseExpression(ctx);
-        }
-        throw new CompilationFailedException(CompilePhase.PARSING.phaseNumber, instance.sourceUnit, new IllegalStateException("$ctx is prohibited inside annotations."))
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(VariableExpressionContext ctx) {
-        setupNodeLocation(new VariableExpression(ctx.IDENTIFIER().text), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(FieldAccessExpressionContext ctx) {
-        def op = ctx.getChild(1) as TerminalNode
-        def text = ctx.IDENTIFIER().text
-        def left = parseExpression(ctx.expression())
-        def right = new ConstantExpression(text)
-        def node
-        if (op.text == '.@')
-            node = new AttributeExpression(left, right)
-        else {
-            node = new PropertyExpression(left, right, ctx.getChild(1).text in ['?.', '*.'])
-        }
-        setupNodeLocation(node, ctx)
-        node.spreadSafe = op.text == '*.'
-        node
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static PrefixExpression parseExpression(PrefixExpressionContext ctx) {
-        setupNodeLocation(new PrefixExpression(createToken(ctx.getChild(0) as TerminalNode), parseExpression(ctx.expression())), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static PostfixExpression parseExpression(PostfixExpressionContext ctx) {
-        setupNodeLocation(new PostfixExpression(parseExpression(ctx.expression()), createToken(ctx.getChild(1) as TerminalNode)), ctx)
-    }
-
-    static ConstantExpression parseDecimal(String text, ParserRuleContext ctx) {
-        setupNodeLocation(new ConstantExpression(Numbers.parseDecimal(text), !text.startsWith('-')), ctx) // Why 10 is int but -10 is Integer?
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(AnnotationParamDecimalExpressionContext ctx) {
-        parseDecimal(ctx.DECIMAL().text, ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(ConstantDecimalExpressionContext ctx) {
-        parseDecimal(ctx.DECIMAL().text, ctx)
-    }
-
-    static ConstantExpression parseInteger(String text, ParserRuleContext ctx) {
-        setupNodeLocation(new ConstantExpression(Numbers.parseInteger(text), !text.startsWith('-')), ctx) //Why 10 is int but -10 is Integer?
-    }
-
-    static ConstantExpression parseInteger(String text, org.antlr.v4.runtime.Token ctx) {
-        setupNodeLocation(new ConstantExpression(Numbers.parseInteger(text), !text.startsWith('-')), ctx) //Why 10 is int but -10 is Integer?
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(ConstantIntegerExpressionContext ctx) {
-        parseInteger(ctx.INTEGER().text, ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(AnnotationParamIntegerExpressionContext ctx) {
-        parseInteger(ctx.INTEGER().text, ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(BoolExpressionContext ctx) {
-        setupNodeLocation(new ConstantExpression(ctx.KW_FALSE() ? false : true, true), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(AnnotationParamBoolExpressionContext ctx) {
-        setupNodeLocation(new ConstantExpression(ctx.KW_FALSE() ? false : true, true), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static parseConstantString(ParserRuleContext ctx) {
-        def text = ctx.text
-        def isSlashy = text.startsWith('/')
-
-        //Remove start and end quotes.
-        if (text.startsWith(/'''/) || text.startsWith(/"""/))
-            text = text.length() == 6 ? '' : text[3..-4]
-        else if (text.startsWith(/'/) || text.startsWith('/') || text.startsWith(/"/))
-            text = text.length() == 2 ? '' : text[1..-2]
-
-        //Find escapes.
-        if (!isSlashy)
-            text = StringUtil.replaceStandardEscapes(StringUtil.replaceOctalEscapes(text))
-        else
-            text = text.replace($/\//$, '/')
-
-        setupNodeLocation(new ConstantExpression(text, true), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(ConstantExpressionContext ctx) {
-        parseConstantString(ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static ConstantExpression parseExpression(AnnotationParamStringExpressionContext ctx) {
-        parseConstantString(ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(GstringExpressionContext ctx) {
-        parseExpression(ctx.gstring())
-    }
-
-    static Expression parseExpression(GstringContext ctx) {
-        def clearStart = { String it -> it.length() == 2 ? "" : it[1..-2] }
-        def clearPart = { String it -> it.length() == 1 ? "" : it[0..-2] }
-        def clearEnd = { String it -> it.length() == 1 ? "" : it[0..-2] }
-        def strings = [clearStart(ctx.GSTRING_START().text)] + ctx.GSTRING_PART().collect { clearPart(it.text) } + [clearEnd(ctx.GSTRING_END().text)]
-        def expressions = []
-
-        def children = ctx.children
-        children.eachWithIndex { it, i ->
-            if (it instanceof ExpressionContext) {
-                // We can guarantee, that it will be at least fallback ExpressionContext multimethod overloading, that can handle such situation.
-                //noinspection GroovyAssignabilityCheck
-                expressions << (parseExpression(it) as Expression)
-            }
-            else if (it instanceof GstringPathExpressionContext)
-                expressions << collectPathExpression(it)
-            else if (it instanceof TerminalNode) {
-                def next = i + 1 < children.size() ? children[i + 1] : null
-                if (next instanceof TerminalNode && (next as TerminalNode).symbol.type == GroovyParser.RCURVE)
-                    expressions << new ConstantExpression(null)
-            }
-        }
-        def gstringNode = new GStringExpression(ctx.text, strings.collect { new ConstantExpression(it) }, expressions)
-        setupNodeLocation(gstringNode, ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(NullExpressionContext ctx) {
-        setupNodeLocation(new ConstantExpression(null), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(AnnotationParamNullExpressionContext ctx) {
-        setupNodeLocation(new ConstantExpression(null), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(AssignmentExpressionContext ctx) {
-        def left = parseExpression(ctx.expression(0)) // TODO reference to AntlrParserPlugin line 2304 for error handling.
-        def right = parseExpression(ctx.expression(1))
-        setupNodeLocation(new BinaryExpression(left, createToken(ctx.getChild(1) as TerminalNode), right), ctx)
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(DeclarationExpressionContext ctx) {
-        parseDeclaration(ctx.declarationRule())
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static Expression parseExpression(CallExpressionContext ctx) {
-
-        def methodNode
-        //FIXME in log a, b; a is treated as path expression and became a method call instead of variable
-        if (!ctx.LPAREN() && ctx.closureExpressionRule().size() == 0)
-            return collectPathExpression(ctx.pathExpression())
-
-        // Collect closure's in argumentList expression.
-        def argumentListExpression = createArgumentList(ctx.argumentList())
-        ctx.closureExpressionRule().each { argumentListExpression.addExpression(parseExpression(it)) }
-
-        //noinspection GroovyAssignabilityCheck
-        def (Expression expression, String methodName, boolean implicitThis) = parsePathExpression(ctx.pathExpression())
-        methodNode = new MethodCallExpression(expression, methodName, argumentListExpression)
-        methodNode.implicitThis = implicitThis
-        methodNode
-    }
-
-    static Expression collectPathExpression(PathExpressionContext ctx) {
-        def identifiers = ctx.IDENTIFIER()
-        switch (identifiers.size()) {
-        case 1:
-            return new VariableExpression(identifiers[0].text);
-            break;
-        default:
-            def inject = identifiers[1..-1].inject(new VariableExpression(identifiers[0].text)) { val, prop ->
-                new PropertyExpression(val as Expression, new ConstantExpression(prop.text))
-            }
-            return inject
-        }
-    }
-
-    static Expression collectPathExpression(GstringPathExpressionContext ctx) {
-        if (!ctx.GSTRING_PATH_PART())
-            new VariableExpression(ctx.IDENTIFIER().text)
-        else {
-            def inj = ctx.GSTRING_PATH_PART().inject(new VariableExpression(ctx.IDENTIFIER().text)) { val, prop ->
-                new PropertyExpression(val as Expression, new ConstantExpression(prop.text[1..-1]))
-            }
-            inj
-        }
-    }
-
-    @SuppressWarnings("GroovyUnusedDeclaration")
-    static MethodCallExpression parseExpression(MethodCallExpressionContext ctx) {
-        def method = new ConstantExpression(ctx.IDENTIFIER().text)
-        Expression argumentListExpression = createArgumentList(ctx.argumentList())
-        def expression = new MethodCallExpression(parseExpression(ctx.expression()), method, argumentListExpression)
-        expression.implicitThis = false
-        def op = ctx.getChild(1) as TerminalNode
-        expression.spreadSafe = op.text == '*.'
-        expression.safe = op.text == '?.'
-        expression
-    }
-
-    static ClassNode parseExpression(ClassNameExpressionContext ctx) {
-        setupNodeLocation(ClassHelper.make(ctx.IDENTIFIER().join('.')), ctx)
-    }
-
-    static ClassNode parseExpression(GenericClassNameExpressionContext ctx) {
-        def classNode = parseExpression(ctx.classNameExpression())
-
-        if (ctx.LBRACK())
-            classNode = classNode.makeArray()
-        classNode.genericsTypes = parseGenericList(ctx.genericList())
-        setupNodeLocation(classNode, ctx)
-    }
-
     static GenericsType[] parseGenericList(GenericListContext ctx) {
         !ctx ?
             null
             : ctx.genericListElement().collect {
             if (it instanceof GenericsConcreteElementContext)
-                setupNodeLocation(new GenericsType(parseExpression(it.genericClassNameExpression())), it)
+                setupNodeLocation(new GenericsType(ExpressionParser.parseExpression(it.genericClassNameExpression())), it)
             else {
                 assert it instanceof GenericsWildcardElementContext
                 ClassNode baseType = ClassHelper.makeWithoutCaching("?")
                 ClassNode[] upperBounds = null
                 ClassNode lowerBound = null
                 if (it.KW_EXTENDS())
-                    upperBounds = [ parseExpression(it.genericClassNameExpression()) ]
+                    upperBounds = [ ExpressionParser.parseExpression(it.genericClassNameExpression()) ]
                 else if (it.KW_SUPER())
-                    lowerBound = parseExpression(it.genericClassNameExpression())
+                    lowerBound = ExpressionParser.parseExpression(it.genericClassNameExpression())
 
                 def type = new GenericsType(baseType, upperBounds, lowerBound)
                 type.wildcard = true
@@ -877,10 +467,10 @@ class GASTBuilder {
 
     static GenericsType[] parseGenericDeclaration(GenericDeclarationListContext ctx) {
         ctx ? ctx.genericsDeclarationElement().collect {
-            def classNode = parseExpression(it.genericClassNameExpression(0))
+            def classNode = ExpressionParser.parseExpression(it.genericClassNameExpression(0))
             ClassNode[] upperBounds = null
             if (it.KW_EXTENDS())
-                upperBounds = (it.genericClassNameExpression().toList()[1..-1].collect(ASTBuilder.&parseExpression)) as ClassNode[]
+                upperBounds = (it.genericClassNameExpression().toList()[1..-1].collect(ExpressionParser.&parseExpression)) as ClassNode[]
             def type = new GenericsType(classNode, upperBounds, null)
             setupNodeLocation(type, it)
         } : null
@@ -894,7 +484,7 @@ class GASTBuilder {
         def left = new VariableExpression(ctx.IDENTIFIER().text, parseTypeDeclaration(ctx.typeDeclaration()))
         def col = ctx.start.charPositionInLine + 1 // FIXME Why assignment token location is it's first occurrence.
         def token = new Token(Types.ASSIGN, '=', ctx.start.line, col)
-        def right = ctx.childCount == 2 ? new EmptyExpression() : parseExpression(ctx.expression())
+        def right = ctx.childCount == 2 ? new EmptyExpression() : ExpressionParser.parseExpression(ctx.expression())
 
         def expression = new DeclarationExpression(left, token, right)
         attachAnnotations(expression, ctx.annotationClause())
@@ -902,18 +492,18 @@ class GASTBuilder {
     }
 
     @SuppressWarnings("UnnecessaryQualifiedReference") public
-    static Expression createArgumentList(GroovyParser.ArgumentListContext ctx) {
+    static TupleExpression createArgumentList(GroovyParser.ArgumentListContext ctx) {
         List<MapEntryExpression> mapArgs = []
         List<Expression> expressions = []
         ctx?.children?.each {
             if (it instanceof GroovyParser.ArgumentContext) {
                 if (it.mapEntry())
-                    mapArgs << parseExpression(it.mapEntry())
+                    mapArgs << ExpressionParser.parseExpression(it.mapEntry())
                 else
-                    expressions << parseExpression(it.expression())
+                    expressions << ExpressionParser.parseExpression(it.expression())
             }
             else if (it instanceof GroovyParser.ClosureExpressionRuleContext)
-                expressions << parseExpression(it)
+                expressions << ExpressionParser.parseExpression(it)
         }
         if (expressions) {
             if (mapArgs)
@@ -940,7 +530,7 @@ class GASTBuilder {
     }
 
     static AnnotationNode parseAnnotation(AnnotationClauseContext ctx) {
-        def node = new AnnotationNode(parseExpression(ctx.genericClassNameExpression()))
+        def node = new AnnotationNode(ExpressionParser.parseExpression(ctx.genericClassNameExpression()))
         if (ctx.annotationElement())
             node.addMember("value", parseAnnotationElement(ctx.annotationElement()))
         else {
@@ -957,12 +547,12 @@ class GASTBuilder {
         if (annotationClause)
             setupNodeLocation(new AnnotationConstantExpression(parseAnnotation(annotationClause)), annotationClause)
         else
-            parseExpression(ctx.annotationParameter())
+            ExpressionParser.parseExpression(ctx.annotationParameter())
     }
 
 
     static ClassNode[] parseThrowsClause(ThrowsClauseContext ctx) {
-        ctx ? ctx.classNameExpression().collect { parseExpression(it) } : []
+        ctx ? ctx.classNameExpression().collect { ExpressionParser.parseExpression(it) } : []
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -982,16 +572,16 @@ class GASTBuilder {
     }
 
     static ClassNode parseTypeDeclaration(TypeDeclarationContext ctx) {
-        !ctx || ctx.KW_DEF() ? ClassHelper.OBJECT_TYPE : setupNodeLocation(parseExpression(ctx.genericClassNameExpression()), ctx)
+        !ctx || ctx.KW_DEF() ? ClassHelper.OBJECT_TYPE : setupNodeLocation(ExpressionParser.parseExpression(ctx.genericClassNameExpression()), ctx)
     }
 
     static ArrayExpression parse(NewArrayRuleContext ctx) {
-        def expression = new ArrayExpression(parseExpression(ctx.classNameExpression()), [], ctx.INTEGER().collect { parseInteger(it.text, it.symbol) })
+        def expression = new ArrayExpression(ExpressionParser.parseExpression(ctx.classNameExpression()), [], ctx.INTEGER().collect { ExpressionParser.parseInteger(it.text, it.symbol) })
         setupNodeLocation(expression, ctx)
     }
 
     static ConstructorCallExpression parse(NewInstanceRuleContext ctx) {
-        def creatingClass = ctx.genericClassNameExpression() ? parseExpression(ctx.genericClassNameExpression()) : parseExpression(ctx.classNameExpression())
+        def creatingClass = ctx.genericClassNameExpression() ? ExpressionParser.parseExpression(ctx.genericClassNameExpression()) : ExpressionParser.parseExpression(ctx.classNameExpression())
         if (ctx.LT()) // Diamond case.
             creatingClass.genericsTypes = []
 
@@ -1019,7 +609,7 @@ class GASTBuilder {
             def parameter = new Parameter(parseTypeDeclaration(it.typeDeclaration()), it.IDENTIFIER().text)
             attachAnnotations(parameter, it.annotationClause())
             if (it.expression())
-                parameter.initialExpression = parseExpression(it.expression())
+                parameter.initialExpression = ExpressionParser.parseExpression(it.expression())
             setupNodeLocation(parameter, it)
         }
     }

@@ -15,14 +15,9 @@ class MainTest extends Specification {
         def file = new File(path)
         def moduleNodeNew = new Main(Configuration.NEW).process(file)
         def moduleNodeOld = new Main(Configuration.OLD).process(file)
-        def moduleNodeOld2 = new Main(Configuration.OLD).process(file)
         config = config.is(_) ? ASTComparatorCategory.DEFAULT_CONFIGURATION : config
 
         expect:
-        ASTComparatorCategory.apply(config) {
-            assert moduleNodeOld == moduleNodeOld2
-        }
-
         ASTComparatorCategory.apply(config) {
             assert moduleNodeNew == moduleNodeOld, "Fail in $path"
         }

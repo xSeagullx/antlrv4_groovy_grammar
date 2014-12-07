@@ -65,25 +65,21 @@ public class StatementParser {
 		return GASTBuilder.setupNodeLocation(statement, ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ExpressionStatementContext ctx) {
-		return GASTBuilder.setupNodeLocation(new ExpressionStatement(GASTBuilder.parseExpression(ctx.expression())), ctx);
+		return GASTBuilder.setupNodeLocation(new ExpressionStatement(ExpressionParser.parseExpression(ctx.expression())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.IfStatementContext ctx) {
 		Statement trueBranch = parse(ctx.statementBlock(0));
 		Statement falseBranch = ctx.KW_ELSE() != null ? parse(ctx.statementBlock(1)) : EmptyStatement.INSTANCE;
-		BooleanExpression expression = new BooleanExpression(GASTBuilder.parseExpression(ctx.expression()));
+		BooleanExpression expression = new BooleanExpression(ExpressionParser.parseExpression(ctx.expression()));
 		return GASTBuilder.setupNodeLocation(new IfStatement(expression, trueBranch, falseBranch), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.WhileStatementContext ctx) {
-		return GASTBuilder.setupNodeLocation(new WhileStatement(new BooleanExpression(GASTBuilder.parseExpression(ctx.expression())), parse(ctx.statementBlock())), ctx);
+		return GASTBuilder.setupNodeLocation(new WhileStatement(new BooleanExpression(ExpressionParser.parseExpression(ctx.expression())), parse(ctx.statementBlock())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ClassicForStatementContext ctx) {
 		ClosureListExpression expression = new ClosureListExpression();
 
@@ -99,7 +95,7 @@ public class StatementParser {
 			if (captureNext && isSemicolon)
 				expression.addExpression(EmptyExpression.INSTANCE);
 			else if (captureNext && c instanceof GroovyParser.ExpressionContext)
-				expression.addExpression(GASTBuilder.parseExpression((GroovyParser.ExpressionContext)c));
+				expression.addExpression(ExpressionParser.parseExpression((GroovyParser.ExpressionContext)c));
 			captureNext = isSemicolon;
 		}
 
@@ -107,22 +103,20 @@ public class StatementParser {
 		return GASTBuilder.setupNodeLocation(new ForStatement(parameter, expression, parse(ctx.statementBlock())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ForInStatementContext ctx) {
 		Parameter parameter = new Parameter(GASTBuilder.parseTypeDeclaration(ctx.typeDeclaration()), ctx.IDENTIFIER().getText());
 		parameter = GASTBuilder.setupNodeLocation(parameter, ctx.IDENTIFIER().getSymbol());
 
-		return GASTBuilder.setupNodeLocation(new ForStatement(parameter, GASTBuilder.parseExpression(ctx.expression()), parse(ctx.statementBlock())), ctx);
+		return GASTBuilder.setupNodeLocation(new ForStatement(parameter, ExpressionParser.parseExpression(ctx.expression()), parse(ctx.statementBlock())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ForColonStatementContext ctx) {
 		if (ctx.typeDeclaration() == null)
 			throw new RuntimeException("Classic for statement require type to be declared.");
 		Parameter parameter = new Parameter(GASTBuilder.parseTypeDeclaration(ctx.typeDeclaration()), ctx.IDENTIFIER().getText());
 		parameter = GASTBuilder.setupNodeLocation(parameter, ctx.IDENTIFIER().getSymbol());
 
-		return GASTBuilder.setupNodeLocation(new ForStatement(parameter, GASTBuilder.parseExpression(ctx.expression()), parse(ctx.statementBlock())), ctx);
+		return GASTBuilder.setupNodeLocation(new ForStatement(parameter, ExpressionParser.parseExpression(ctx.expression()), parse(ctx.statementBlock())), ctx);
 	}
 
 	public static Statement parse(GroovyParser.StatementBlockContext ctx) {
@@ -132,7 +126,6 @@ public class StatementParser {
 			return parseStatement(ctx.blockStatement());
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.SwitchStatementContext ctx) {
 		List<CaseStatement> caseStatements = new ArrayList<CaseStatement>();
 		for (GroovyParser.CaseStatementContext caseStmt : ctx.caseStatement()) {
@@ -140,7 +133,7 @@ public class StatementParser {
 			for (GroovyParser.StatementContext st : caseStmt.statement())
 				stmt.addStatement(parseStatement(st));
 
-			caseStatements.add(GASTBuilder.setupNodeLocation(new CaseStatement(GASTBuilder.parseExpression(caseStmt.expression()), stmt),
+			caseStatements.add(GASTBuilder.setupNodeLocation(new CaseStatement(ExpressionParser.parseExpression(caseStmt.expression()), stmt),
 				caseStmt.KW_CASE().getSymbol())); // There only 'case' kw was highlighted in parser old version.
 		}
 
@@ -154,45 +147,36 @@ public class StatementParser {
 		else
 			defaultStatement = EmptyStatement.INSTANCE; // TODO Refactor empty stataements and expressions.
 
-		return new SwitchStatement(GASTBuilder.parseExpression(ctx.expression()), caseStatements, defaultStatement);
+		return new SwitchStatement(ExpressionParser.parseExpression(ctx.expression()), caseStatements, defaultStatement);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.DeclarationStatementContext ctx) {
 		return GASTBuilder.setupNodeLocation(new ExpressionStatement(GASTBuilder.parseDeclaration(ctx.declarationRule())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.NewArrayStatementContext ctx) {
 		return GASTBuilder.setupNodeLocation(new ExpressionStatement(GASTBuilder.parse(ctx.newArrayRule())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.NewInstanceStatementContext ctx) {
 		return GASTBuilder.setupNodeLocation(new ExpressionStatement(GASTBuilder.parse(ctx.newInstanceRule())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ControlStatementContext ctx) {
 		// TODO check validity. Labeling support.
-		// Fake inspection result should be suppressed.
-		//noinspection GroovyConditionalWithIdenticalBranches
 		return GASTBuilder.setupNodeLocation(ctx.KW_BREAK() != null ? new BreakStatement() : new ContinueStatement(), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ReturnStatementContext ctx) {
 		GroovyParser.ExpressionContext expression = ctx.expression();
-		Expression expr = expression != null ? GASTBuilder.parseExpression(expression) : EmptyExpression.INSTANCE;
+		Expression expr = expression != null ? ExpressionParser.parseExpression(expression) : EmptyExpression.INSTANCE;
 		return GASTBuilder.setupNodeLocation(new ReturnStatement(expr), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.ThrowStatementContext ctx) {
-		return GASTBuilder.setupNodeLocation(new ThrowStatement(GASTBuilder.parseExpression(ctx.expression())), ctx);
+		return GASTBuilder.setupNodeLocation(new ThrowStatement(ExpressionParser.parseExpression(ctx.expression())), ctx);
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.TryCatchFinallyStatementContext ctx) {
 		Statement finallyStatement;
 
@@ -215,13 +199,12 @@ public class StatementParser {
 				statement.addCatch(GASTBuilder.setupNodeLocation(new CatchStatement(new Parameter(ClassHelper.OBJECT_TYPE, var), catchBlock), cbc));
 			else {
 				for (GroovyParser.ClassNameExpressionContext cne : classNameExpression)
-					statement.addCatch(GASTBuilder.setupNodeLocation(new CatchStatement(new Parameter(GASTBuilder.parseExpression(cne), var), catchBlock), cbc));
+					statement.addCatch(GASTBuilder.setupNodeLocation(new CatchStatement(new Parameter(ExpressionParser.parseExpression(cne), var), catchBlock), cbc));
 			}
 		}
 		return statement;
 	}
 
-	@SuppressWarnings("GroovyUnusedDeclaration")
 	public static Statement parseStatement(GroovyParser.CommandExpressionStatementContext ctx) {
 		Expression expression = null;
 		List<ParseTree> list = ctx.cmdExpressionRule().children;
@@ -240,7 +223,7 @@ public class StatementParser {
 				}
 				else if (c1 instanceof GroovyParser.PathExpressionContext) {
 					//noinspection unchecked
-					List<Object> res = (List<Object>)GASTBuilder.parsePathExpression((GroovyParser.PathExpressionContext)c1);
+					List<Object> res = ExpressionParser.parsePathExpression((GroovyParser.PathExpressionContext)c1);
 					expression = (Expression)res.get(0);
 					String methodName = ((TerminalNode)res.get(1)).getText();
 					boolean implicitThis = (Boolean)res.get(2);
